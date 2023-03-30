@@ -41,5 +41,7 @@ python inference.py --checkpoint runs/task3_dual_transformer_bert/model_latest_f
 python inference.py --checkpoint runs/task3_dual_transformer_bert/model_latest_fold0.pt --test
 ```
 
+### Load Model weight directly
 
+The weight of the best model obtained can be found in the zipped folder in [google drive](https://drive.google.com/drive/folders/1Kk_RAtu0HnvQYur3SldjiLbeznCHQJ1K?usp=sharing). The name of the saved model weight is "model_latest_fold0.pt"
 

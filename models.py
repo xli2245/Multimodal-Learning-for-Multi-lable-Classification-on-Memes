@@ -4,6 +4,8 @@ import torch.nn.functional as F
 import torchvision.models as models
 from transformers import BertConfig, BertModel, BertTokenizer
 from transformers import RobertaConfig, RobertaModel, RobertaTokenizer
+from transformers import AlbertConfig, AlbertModel, AlbertTokenizer
+from transformers import DebertaConfig, DebertaModel, DebertaTokenizer
 
 
 class EncoderImageCNN(nn.Module):
@@ -79,6 +81,63 @@ class EncoderTextROBERTA(nn.Module):
 
         outputs = self.roberta_model(x, attention_mask=attention_mask)
         outputs = outputs[2][-1]
+
+        return outputs
+
+
+class EncoderTextALBERT(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        albert_config = AlbertConfig.from_pretrained(config['text-model']['pretrain'],
+                                                 output_hidden_states=True,
+                                                 num_hidden_layers=config['text-model']['extraction-hidden-layer'])
+        albert_model = AlbertModel.from_pretrained(config['text-model']['pretrain'], config=albert_config)
+
+        self.tokenizer = AlbertTokenizer.from_pretrained(config['text-model']['pretrain'])
+        self.albert_model = albert_model
+
+    def forward(self, x, lengths):
+        '''
+        x: tensor of indexes (LongTensor) obtained with tokenizer.encode() of size B x ?
+        lengths: tensor of lengths (LongTensor) of size B
+        '''
+        max_len = max(lengths)
+        attention_mask = torch.ones(x.shape[0], max_len)
+        for e, l in zip(attention_mask, lengths):
+            e[l:] = 0
+        attention_mask = attention_mask.to(x.device)
+
+        outputs = self.albert_model(x, attention_mask=attention_mask)
+        outputs = outputs[2][-1]
+
+        return outputs
+
+
+
+class EncoderTextDEBERTA(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        deberta_config = DebertaConfig.from_pretrained(config['text-model']['pretrain'],
+                                                 output_hidden_states=True,
+                                                 num_hidden_layers=config['text-model']['extraction-hidden-layer'])
+        deberta_model = DebertaModel.from_pretrained(config['text-model']['pretrain'], config=deberta_config)
+
+        self.tokenizer = DebertaTokenizer.from_pretrained(config['text-model']['pretrain'])
+        self.deberta_model = deberta_model
+
+    def forward(self, x, lengths):
+        '''
+        x: tensor of indexes (LongTensor) obtained with tokenizer.encode() of size B x ?
+        lengths: tensor of lengths (LongTensor) of size B
+        '''
+        max_len = max(lengths)
+        attention_mask = torch.ones(x.shape[0], max_len)
+        for e, l in zip(attention_mask, lengths):
+            e[l:] = 0
+        attention_mask = attention_mask.to(x.device)
+
+        outputs = self.deberta_model(x, attention_mask=attention_mask)
+        outputs = outputs[1][-1]
 
         return outputs
 
@@ -301,10 +360,16 @@ class MemeMultiLabelClassifier(nn.Module):
         self.visual_enabled = cfg['image-model']['enabled'] if 'enabled' in cfg['image-model'] else True
         if self.visual_enabled:
             self.visual_module = EncoderImageCNN(cfg)
+
         if cfg['text-model']['name'] == 'roberta':
             self.textual_module = EncoderTextROBERTA(cfg)
+        elif cfg['text-model']['name'] == 'albert':
+            self.textual_module = EncoderTextALBERT(cfg)
+        elif cfg['text-model']['name'] == 'deberta':
+            self.textual_module = EncoderTextDEBERTA(cfg)
         else:
             self.textual_module = EncoderTextBERT(cfg)
+
         if cfg['model']['name'] == 'transformer-encoder' or cfg['model']['name'] == 'transformer':
             self.joint_processing_module = JointTransformerEncoder(cfg, labels)
         elif cfg['model']['name'] == 'dual-transformer':

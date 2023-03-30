@@ -27,18 +27,18 @@ cd ..
 
 1.  Model training
 ```
-python train.py --config cfg/config_dual_transformer_task3.yaml --logger_name runs/task3_dual_transformer_bert --val_step 100 --num_epochs 30
+python train.py --config cfg/config_dual_transformer_task3.yaml --logger_name runs/task3_dual_transformer_weighted --val_step 100 --num_epochs 30
 ```
 
 2. Model validation
 
 ```
-python inference.py --checkpoint runs/task3_dual_transformer_bert/model_latest_fold0.pt --validate
+python inference.py --checkpoint runs/task3_dual_transformer_weighted/model_latest_fold0.pt --validate
 ```
 
 3. Model testing
 ```
-python inference.py --checkpoint runs/task3_dual_transformer_bert/model_latest_fold0.pt --test
+python inference.py --checkpoint runs/task3_dual_transformer_weighted/model_latest_fold0.pt --test
 ```
 
 ### Load Model weight directly

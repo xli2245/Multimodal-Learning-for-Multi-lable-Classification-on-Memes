@@ -1,10 +1,8 @@
-# AIMH at SemEval-2021 Task 6: Multimodal Classification Using an Ensemble of Transformer Models
+# CS 769 Group Project: Multimodal Classification on Persuasion
 
-This repo contains the code for replicating our system for the SemEval-2021 Task 6 challenge: [Detection of Persuasive Techniques in Texts and Images](https://propaganda.math.unipd.it/semeval2021task6/). Our paper is available [here](https://aclanthology.org/2021.semeval-1.140/).
+## Teammate: Minyi Dai, Yepeng Jin, Xue Li
 
-<p align="center">
-  <img src="https://user-images.githubusercontent.com/25117311/152802885-88b8b26e-8e86-4805-96d6-169163294cfa.png">
-</p>
+This repo contains the code for the final project of CS 769. The code is built based on the [AIMH model](https://github.com/mesnico/MemePersuasionDetection) used for [the SemEval-2021 Task 6 challenge](https://propaganda.math.unipd.it/semeval2021task6/). We aim to develop an effective multimodal approach for automatically identifying the rhetorical and psychological techniques used in memes by considering both visual and textual elements. Here, Convolutional Neural Networks (CNN) are used for image embedding, and Bidirectional Encoder Representations from Transformers (BERT) are used for text embedding. A double visual-textual transformation (DVTT) model combines these embeddings to classify memes into one of the 22 possible techniques. Additionally, we delve into the impact of model selection strategy, text embedding models, and multimodal fusion methods on model performance.
 
 
 ## Setup
@@ -13,38 +11,36 @@ Clone this repo:
 git clone https://github.com/mesnico/MemePersuasionDetection
 ```
 
-Then, install the requisites (virtualenv or conda are recommended):
-```
-pip install -r requirements.txt
-```
+## Model running
 
-Extract the images in the data folder
+The model training, validation and testing are performed using the [Monai Docker](https://hub.docker.com/r/projectmonai/monai).
+
+
+### Extract the images in the data folder
 ```
 cd data
 for z in *.zip; do unzip $z; done
 cd ..
 ```
 
-## Train and Validation
-To train the network issue the following command:
+### Train, Validation and testing
+
+1.  Model training
 ```
 python train.py --config cfg/config_task3.yaml --logger_name runs/task3 --val_step 100 --num_epochs 50 
 ```
 N.B.: `runs/task3` is the folder where the checkpoints and the tensorboard files will be saved. Opening a tensorboard on this directory will show the training and validation curves.
 
-To perform inference on the best-performing model, issue the following command:
+2. Model validation
+
 ```
 python inference.py --checkpoint runs/task3/model_best_fold0.pt --validate 
 ```
 
-## Citation
+3. Model testing
+```
+python inference.py --checkpoint runs/task3/model_best_fold0.pt --test
+```
 
-If you found our work useful for your research, please cite our paper:
 
-    @inproceedings{messina2021aimh,
-      title={AIMH at SemEval-2021 Task 6: multimodal classification using an ensemble of transformer models},
-      author={Messina, Nicola and Falchi, Fabrizio and Gennaro, Claudio and Amato, Giuseppe},
-      booktitle={Proceedings of the 15th International Workshop on Semantic Evaluation (SemEval-2021)},
-      pages={1020--1026},
-      year={2021}
-    }
+

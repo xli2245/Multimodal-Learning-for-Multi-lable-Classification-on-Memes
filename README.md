@@ -8,7 +8,7 @@ This repo contains the code for the final project of CS 769 in UW-Madison. The c
 ## Setup
 Clone this repo:
 ```
-git clone https://github.com/mesnico/MemePersuasionDetection
+git clone  https://github.com/xli2245/CS769_Project
 ```
 
 ## Model running

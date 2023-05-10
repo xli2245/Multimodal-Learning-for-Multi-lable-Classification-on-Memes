@@ -1,5 +1,9 @@
-import argparse
 import os
+
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
+import argparse
 import json
 
 import torch
@@ -14,6 +18,7 @@ from scorer.task1_3 import evaluate
 from torchvision import transforms as T
 
 
+# convert id to classes
 def id_to_classes(classes_ids, labels):
     out_classes = []
     for elem in classes_ids:
@@ -162,6 +167,7 @@ def main(opt):
 
 
 if __name__ == '__main__':
+    # set up parameters
     parser = argparse.ArgumentParser()
     parser.add_argument('--threshold', default=0.3, type=float, help="Threshold to use for classification")
     parser.add_argument('--checkpoint', default=None, type=str, metavar='PATH',

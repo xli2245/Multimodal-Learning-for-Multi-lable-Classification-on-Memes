@@ -28,6 +28,7 @@ class SemEvalDataset(Dataset):
         else:
             ids = None
 
+        # setup split name
         if split == 'train' or split == 'val':
             self.split_name = 'training'
         elif split == 'dev':
@@ -35,6 +36,7 @@ class SemEvalDataset(Dataset):
         elif split == 'test':
             self.split_name = 'test'
 
+        # load corresponding label file
         if task == 3:
             label_file = os.path.join(self.data_root, '{}_set_task3'.format(self.split_name), '{}_set_task3.txt'.format(self.split_name))
             self.class_list = read_classes('techniques_list_task3.txt')
@@ -93,6 +95,7 @@ class Collate:
     def __init__(self, config, classes):
         self.vocab_type = config['text-model']['name']
         self.data_root = config['dataset']['root']
+        # setup tokenizer method
         if self.vocab_type == 'bert':
             self.tokenizer = BertTokenizer.from_pretrained(config['text-model']['pretrain'])
         elif self.vocab_type == 'roberta':
@@ -106,6 +109,7 @@ class Collate:
     def __call__(self, data):
         images, texts, classes, ids = zip(*data)
 
+        # tokenization
         tokenized_texts = []
         for ts in texts:
             tokenized = [self.tokenizer.cls_token_id]
@@ -113,9 +117,6 @@ class Collate:
                 tokenized.extend(self.tokenizer.encode(c, add_special_tokens=False))
                 tokenized.append(self.tokenizer.sep_token_id)
             tokenized_texts.append(torch.LongTensor(tokenized))
-
-            # texts = [torch.LongTensor(self.tokenizer.encode(c, max_length=max_len, pad_to_max_length=True, add_special_tokens=False))
-            #                 for c in texts]
 
         text_lengths = [len(c) for c in tokenized_texts]
         max_len = max(text_lengths)

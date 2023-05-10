@@ -42,8 +42,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_epochs', default=40, type=int,
                         help='Number of training epochs.')
-    # parser.add_argument('--crop_size', default=224, type=int,
-    #                     help='Size of an image crop as the CNN input.')
     parser.add_argument('--workers', default=10, type=int,
                         help='Number of data loader workers.')
     parser.add_argument('--log_step', default=10, type=int,
@@ -52,15 +50,14 @@ def main():
                         help='Number of steps to run validation.')
     parser.add_argument('--test_step', default=100000000, type=int,
                         help='Number of steps to run validation.')
-    parser.add_argument('--logger_name', default='runs/test',
+    parser.add_argument('--logger_name', default='runs/simple_transformer',
                         help='Path to save the model and Tensorboard log.')
     parser.add_argument('--resume', default='', type=str, metavar='PATH',
                         help='path to latest checkpoint (default: none). Loads model, optimizer, scheduler')
     parser.add_argument('--load-model', default='', type=str, metavar='PATH',
                         help='path to latest checkpoint (default: none). Loads only the model')
-    parser.add_argument('--config', type=str, help="Which configuration to use. See into 'config' folder")
+    parser.add_argument('--config', default='./cfg/config_task3_simple.yaml', type=str, help="Which configuration to use. See into 'config' folder")
     parser.add_argument('--cross-validation', action='store_true', help='Enables cross validation')
-
 
     opt = parser.parse_args()
     print(opt)
@@ -79,11 +76,6 @@ def main():
         train(opt, config, val_fold=0)
 
 def train(opt, config, val_fold=0):
-    # torch.cuda.set_enabled_lms(True)
-    # if (torch.cuda.get_enabled_lms()):
-    #     torch.cuda.set_limit_lms(11000 * 1024 * 1024)
-    #     print('[LMS=On limit=' + str(torch.cuda.get_limit_lms()) + ']')
-
     if 'task' not in config['dataset']:
         config['dataset']['task'] = 3 # for back compatibility
         print('Manually assigning: task 3')
@@ -167,31 +159,6 @@ def train(opt, config, val_fold=0):
 
     # # optionally resume from a checkpoint
     start_epoch = 0
-    # if opt.resume or opt.load_model:
-    #     filename = opt.resume if opt.resume else opt.load_model
-    #     if os.path.isfile(filename):
-    #         print("=> loading checkpoint '{}'".format(filename))
-    #         checkpoint = torch.load(filename, map_location='cpu')
-    #         model.load_state_dict(checkpoint['model'], strict=False)
-    #         if torch.cuda.is_available():
-    #             model.cuda()
-    #         if opt.resume:
-    #             start_epoch = checkpoint['epoch']
-    #             # best_rsum = checkpoint['best_rsum']
-    #             optimizer.load_state_dict(checkpoint['optimizer'])
-    #             if checkpoint['scheduler'] is not None and not opt.reinitialize_scheduler:
-    #                 scheduler.load_state_dict(checkpoint['scheduler'])
-    #             # Eiters is used to show logs as the continuation of another
-    #             # training
-    #             model.Eiters = checkpoint['Eiters']
-    #             print("=> loaded checkpoint '{}' (epoch {})"
-    #                   .format(opt.resume, start_epoch))
-    #         else:
-    #             print("=> loaded only model from checkpoint '{}'"
-    #                   .format(opt.load_model))
-    #     else:
-    #         print("=> no checkpoint found at '{}'".format(opt.resume))
-
     model.train()
 
     # Train loop
@@ -202,6 +169,8 @@ def train(opt, config, val_fold=0):
     best_sum = 0.0
     best_loss = float("Inf")
     cnt = 0
+    micro_f1_saved_epoch = -1
+    f1_sum_saved_epoch = -1
     for epoch in progress_bar:
         cnt += 1
         for it, (image, text, text_len, labels, ids) in enumerate(train_dataloader):
@@ -229,59 +198,39 @@ def train(opt, config, val_fold=0):
             tb_logger.add_scalar("Training/Loss", loss.item(), global_iteration)
             tb_logger.add_scalar("Training/Learning_Rate", optimizer.param_groups[0]['lr'], global_iteration)
 
-            if global_iteration % opt.val_step == 0:
-                # validate (using different thresholds)
-                metrics = validate(val_dataloader, model, classes, thresholds=[0.3, 0.5, 0.8])
-                tb_logger.add_scalars("Validation/F1", metrics, global_iteration)
-                print(metrics)
-                training_loss = loss.item()
-                val_loss = metrics['val_loss'] / len(val_dataloader)
-                print(f'Epoch {cnt}: training loss: {training_loss}, val loss: {val_loss}')
-                # progress_bar.set_postfix(dict(macroF1='{:.2}'.format(metrics['macroF1_thr=0.5']), microF1='{:.2}'.format(metrics['microF1_thr=0.5'])))
+        # validate (using different thresholds)
+        metrics = validate(val_dataloader, model, classes, thresholds=[0.3])
+        tb_logger.add_scalars("Validation/F1", metrics, global_iteration)
+        training_loss = loss.item()
+        val_loss = metrics['val_loss'] / len(val_dataloader)
+        cur_F1_micro = metrics['microF1_thr=0.3']
+        cur_F1_sum = metrics['macroF1_thr=0.3'] + metrics['microF1_thr=0.3']
+        print(f'Epoch {cnt}: loss: {training_loss}, val loss: {val_loss}, micro F1: {cur_F1_micro}, F1 sum: {cur_F1_sum}')
+        print(f'last micro f1 saved: epoch {micro_f1_saved_epoch}, value: {best_f1}')
+        print(f'last f1 sum saved: epoch {f1_sum_saved_epoch}, value: {best_sum}')
 
-                # save best model
-                '''
-                if metrics['microF1_thr=0.3'] >= best_f1:
-                    print(f'Epoch {cnt}: Saving the highest microF1 model...')
-                    checkpoint = {
-                        'cfg': config,
-                        'epoch': epoch,
-                        'model': model.joint_processing_module.state_dict() if not config['text-model']['fine-tune'] and not config['image-model']['fine-tune'] else model.state_dict()}
-                        # 'optimizer': optimizer.state_dict(),
-                        # 'scheduler': scheduler.state_dict()}
-                    latest = os.path.join(experiment_path, 'model_best_micro_fold{}.pt'.format(val_fold))
-                    torch.save(checkpoint, latest)
-                    best_f1 = metrics['microF1_thr=0.3']
-                '''
+        # save best model
+        if cur_F1_micro >= best_f1 or (cnt - micro_f1_saved_epoch >= 5 and cur_F1_micro - best_f1 > -0.005):
+            print(f'Epoch {cnt}: Saving the highest microF1 model...')
+            best_f1 = cur_F1_micro
+            micro_f1_saved_epoch = cnt
+            checkpoint = {
+                'cfg': config,
+                'epoch': epoch,
+                'model': model.joint_processing_module.state_dict() if not config['text-model']['fine-tune'] and not config['image-model']['fine-tune'] else model.state_dict()}
+            latest = os.path.join(experiment_path, 'model_best_micro_fold{}.pt'.format(val_fold))
+            torch.save(checkpoint, latest)
 
-                if metrics['macroF1_thr=0.3'] + metrics['microF1_thr=0.3'] >= best_sum:
-                    print(f'Epoch {cnt}: Saving the highest sum F1 model...')
-                    checkpoint = {
-                        'cfg': config,
-                        'epoch': epoch,
-                        'model': model.joint_processing_module.state_dict() if not config['text-model']['fine-tune'] and not config['image-model']['fine-tune'] else model.state_dict()}
-                        # 'optimizer': optimizer.state_dict(),
-                        # 'scheduler': scheduler.state_dict()}
-                    latest = os.path.join(experiment_path, 'model_best_sum_fold{}.pt'.format(val_fold))
-                    torch.save(checkpoint, latest)
-                    best_sum = metrics['macroF1_thr=0.3'] + metrics['microF1_thr=0.3']
-
-                '''
-                # calculate BCE loss
-                if metrics['val_loss'] <= best_loss:
-                    print(f'Epoch {cnt}: Saving the lowest BCE loss model...')
-                    checkpoint = {
-                        'cfg': config,
-                        'epoch': epoch,
-                        'model': model.joint_processing_module.state_dict() if not config['text-model']['fine-tune'] and not config['image-model']['fine-tune'] else model.state_dict()}
-                        # 'optimizer': optimizer.state_dict(),
-                        # 'scheduler': scheduler.state_dict()}
-                    latest = os.path.join(experiment_path, 'model_best_loss_fold{}.pt'.format(val_fold))
-                    torch.save(checkpoint, latest)
-                    best_loss = metrics['val_loss']
-                '''
-
-
+        if cur_F1_sum >= best_sum or (cnt - f1_sum_saved_epoch >= 5 and cur_F1_sum - best_sum > -0.005):
+            best_sum = cur_F1_sum
+            f1_sum_saved_epoch = cnt
+            print(f'Epoch {cnt}: Saving the highest sum F1 model ...')
+            checkpoint = {
+                'cfg': config,
+                'epoch': epoch,
+                'model': model.joint_processing_module.state_dict() if not config['text-model']['fine-tune'] and not config['image-model']['fine-tune'] else model.state_dict()}
+            latest = os.path.join(experiment_path, 'model_best_sum_fold{}.pt'.format(val_fold))
+            torch.save(checkpoint, latest)
 
         # save the last model
         if cnt == opt.num_epochs:
@@ -311,7 +260,6 @@ def validate(val_dataloader, model, classes_list, thresholds=[0.3, 0.5, 0.8]):
                 labels = labels.cuda()
             with torch.no_grad():
                 pred_classes, cur_val_loss = model(image, text, text_len, labels, inference_threshold=thr)
-                # cur_val_loss = torch.nn.BCELoss(pred_probs, labels)
                 val_loss += cur_val_loss.item()
 
             for id, labels in zip(ids, pred_classes):    # loop over every element of the batch

@@ -6,27 +6,45 @@ from transformers import BertConfig, BertModel, BertTokenizer
 from transformers import RobertaConfig, RobertaModel, RobertaTokenizer
 from transformers import AlbertConfig, AlbertModel, AlbertTokenizer
 from transformers import DebertaConfig, DebertaModel, DebertaTokenizer
+from transformers import ViTFeatureExtractor, ViTModel
+from transformers import CLIPProcessor, CLIPModel
 
 
 class EncoderImageCNN(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         pool_size = cfg['image-model']['grid']
+        self.img_model_name = cfg['image-model']['name']
+        embed_dim = cfg['image-model']['feat-dim']
 
         if cfg['image-model']['name'] == 'resnet50':
             cnn = models.resnet50(pretrained=True)
+            self.spatial_feats_dim = cnn.fc.in_features
+            modules = list(cnn.children())[:-2]
+            self.cnn = torch.nn.Sequential(*modules)
         elif cfg['image-model']['name'] == 'resnet101':
             cnn = models.resnet101(pretrained=True)
-
-        self.spatial_feats_dim = cnn.fc.in_features
-        modules = list(cnn.children())[:-2]
-        self.cnn = torch.nn.Sequential(*modules)
+            self.spatial_feats_dim = cnn.fc.in_features
+            modules = list(cnn.children())[:-2]
+            self.cnn = torch.nn.Sequential(*modules)
+        elif cfg['image-model']['name'] == 'dino_vitb8':
+            self.feature_extractor = ViTFeatureExtractor.from_pretrained('./model/dino-vits8')
+            cnn = ViTModel.from_pretrained('./model/dino-vits8')
+            modules = list(cnn.children())[:-2]
+            self.cnn = torch.nn.Sequential(*modules)
+            self.spatial_feats_dim = embed_dim * 2
         self.avgpool = nn.AdaptiveAvgPool2d(pool_size)
 
     def forward(self, image):
-        spatial_features = self.cnn(image)
-        spatial_features = self.avgpool(spatial_features)
-        return spatial_features
+        if 'resnet' in self.img_model_name:
+            spatial_features = self.cnn(image)
+            spatial_features = self.avgpool(spatial_features)
+            return spatial_features
+        elif 'dino' in self.img_model_name:
+            inputs = self.feature_extractor(images=image.cpu(), return_tensors="pt")
+            spatial_features = self.cnn(**inputs)
+            spatial_features = self.avgpool(spatial_features)
+            return spatial_features
 
 
 class EncoderTextBERT(nn.Module):
@@ -178,9 +196,25 @@ class PositionalEncodingImageGrid(nn.Module):
 
 
 class MyWeighted(nn.Module):
-    def __init__(self, num_labels):
+    '''
+    weighted layer
+    '''
+    def __init__(self, dim):
         super(MyWeighted, self).__init__()
-        self.params=nn.Parameter(torch.zeros(1, num_labels))
+        self.params=nn.Parameter(torch.zeros(1, dim))
+
+    def forward(self, x, y):
+        params = torch.sigmoid(self.params)
+        z = x * params + y * (1 - params)
+        return z
+
+class FeatureWeightedLayer(nn.Module):
+    '''
+    weighted feature layer
+    '''
+    def __init__(self):
+        super(FeatureWeightedLayer, self).__init__()
+        self.params=nn.Parameter(torch.zeros(1))
 
     def forward(self, x, y):
         params = torch.sigmoid(self.params)
@@ -227,13 +261,6 @@ class DualTransformer(nn.Module):
             self.comb_multi_label_class_head = nn.Linear(int(embed_dim / 2), len(labels))
 
 
-    '''
-    boxes: B x S x 4
-    embeddings: B x S x dim
-    len: B
-    targets: ?
-    delta_tau: B
-    '''
     def forward(self, text, text_len, image):
         bs = text.shape[0]
 
@@ -306,13 +333,7 @@ class JointTransformerEncoder(nn.Module):
         self.image_position_conditioner = PositionalEncodingImageGrid(visual_features_dim, grid)
         self.multi_label_class_head = nn.Linear(cfg['model']['embed-dim'], len(labels))
 
-    '''
-    boxes: B x S x 4
-    embeddings: B x S x dim
-    len: B
-    targets: ?
-    delta_tau: B
-    '''
+
     def forward(self, text, text_len, image):
         bs = text.shape[0]
 
@@ -354,13 +375,246 @@ class JointTransformerEncoder(nn.Module):
         return probs
 
 
+class ConcatJointTransformerEncoder(nn.Module):
+    def __init__(self, cfg, labels):
+        super().__init__()
+        embed_dim = cfg['model']['embed-dim']
+        feedforward_dim = cfg['model']['feedforward-dim']
+        num_layers = cfg['model']['num-layers']
+        visual_features_dim = cfg['image-model']['feat-dim']
+        grid = cfg['image-model']['grid']
+        joint_te_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=4,
+                                                         dim_feedforward=feedforward_dim,
+                                                         dropout=0.1, activation='relu')
+        self.joint_transformer = nn.TransformerEncoder(joint_te_layer,
+                                                       num_layers=num_layers)
+
+        self.map_text = nn.Linear(cfg['text-model']['word-dim'], embed_dim)
+        self.map_image = nn.Linear(visual_features_dim, embed_dim) # + 2 spatial dimensions for encoding the image grid
+
+        self.image_position_conditioner = PositionalEncodingImageGrid(visual_features_dim, grid)
+
+        self.map_to_embed_1 = nn.Linear(cfg['model']['embed-dim'] * 2, cfg['model']['embed-dim'])
+        self.map_to_embed_2 = nn.Linear(cfg['model']['embed-dim'], cfg['model']['embed-dim'] // 2)
+
+        self.multi_label_class_head = nn.Linear(cfg['model']['embed-dim'] // 2, len(labels))
+
+
+    def forward(self, text, text_len, image):
+        bs = text.shape[0]
+
+        text = text.permute(1, 0, 2)    # S x B x dim
+        # map text to a common representation space
+        text = self.map_text(text)
+        text = torch.mean(text, dim=0)
+
+        if image is not None:
+            image = image.view(bs, image.shape[1], -1).permute(2, 0, 1)  # (d1xd2 x B x dim)
+
+            # augment visual feats with positional info and then map to common representation space
+            image = self.image_position_conditioner(image)
+            image = self.map_image(image)
+            image = torch.mean(image, dim=0)
+
+            # merge image and text features using concat method
+            image_len = [image.shape[0]] * bs
+            embeddings = torch.cat([image, text], dim=1) # S+(d1xd2) x B x dim
+        else:
+            # only text
+            image_len = [0] * bs
+            embeddings = text
+
+        # forward temporal transformer
+        multimod_feature = nn.LeakyReLU(0.1)(self.map_to_embed_1(embeddings))
+        multimod_feature = nn.LeakyReLU(0.1)(self.map_to_embed_2(multimod_feature))
+
+        # final multi-class head
+        class_logits = self.multi_label_class_head(multimod_feature)
+        probs = torch.sigmoid(class_logits)
+        return probs
+
+
+class AverageJointTransformerEncoder(nn.Module):
+    def __init__(self, cfg, labels):
+        super().__init__()
+        embed_dim = cfg['model']['embed-dim']
+        feedforward_dim = cfg['model']['feedforward-dim']
+        num_layers = cfg['model']['num-layers']
+        visual_features_dim = cfg['image-model']['feat-dim']
+        grid = cfg['image-model']['grid']
+        joint_te_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=4,
+                                                         dim_feedforward=feedforward_dim,
+                                                         dropout=0.1, activation='relu')
+        self.joint_transformer = nn.TransformerEncoder(joint_te_layer,
+                                                       num_layers=num_layers)
+
+        self.map_text = nn.Linear(cfg['text-model']['word-dim'], embed_dim)
+        self.map_image = nn.Linear(visual_features_dim, embed_dim) # + 2 spatial dimensions for encoding the image grid
+
+        self.image_position_conditioner = PositionalEncodingImageGrid(visual_features_dim, grid)
+        self.multi_label_class_head = nn.Linear(cfg['model']['embed-dim'] // 2, len(labels))
+
+        self.map_to_embed_1 = nn.Linear(cfg['model']['embed-dim'], cfg['model']['embed-dim'])
+        self.map_to_embed_2 = nn.Linear(cfg['model']['embed-dim'], cfg['model']['embed-dim'] // 2)
+
+
+    def forward(self, text, text_len, image):
+        bs = text.shape[0]
+
+        text = text.permute(1, 0, 2)    # S x B x dim
+        # map text to a common representation space
+        text = self.map_text(text)
+        text = torch.mean(text, dim=0)
+
+        if image is not None:
+            image = image.view(bs, image.shape[1], -1).permute(2, 0, 1)  # (d1xd2 x B x dim)
+
+            # augment visual feats with positional info and then map to common representation space
+            image = self.image_position_conditioner(image)
+            image = self.map_image(image)
+            image = torch.mean(image, dim=0)
+
+            # merge image and text features using average method
+            image_len = [image.shape[0]] * bs
+            embeddings = (text + image) / 2
+        else:
+            # only text
+            image_len = [0] * bs
+            embeddings = text
+
+        # forward temporal transformer
+        multimod_feature = nn.LeakyReLU(0.1)(self.map_to_embed_1(embeddings))
+        multimod_feature = nn.LeakyReLU(0.1)(self.map_to_embed_2(multimod_feature))
+
+        # final multi-class head
+        class_logits = self.multi_label_class_head(multimod_feature)
+        probs = torch.sigmoid(class_logits)
+        return probs
+
+
+class WeightedJointTransformerEncoder(nn.Module):
+    def __init__(self, cfg, labels):
+        super().__init__()
+        embed_dim = cfg['model']['embed-dim']
+        bs = cfg['training']['bs']
+        feedforward_dim = cfg['model']['feedforward-dim']
+        num_layers = cfg['model']['num-layers']
+        visual_features_dim = cfg['image-model']['feat-dim']
+        grid = cfg['image-model']['grid']
+        joint_te_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=4,
+                                                         dim_feedforward=feedforward_dim,
+                                                         dropout=0.1, activation='relu')
+        self.joint_transformer = nn.TransformerEncoder(joint_te_layer,
+                                                       num_layers=num_layers)
+
+        self.map_text = nn.Linear(cfg['text-model']['word-dim'], embed_dim)
+        self.map_image = nn.Linear(visual_features_dim, embed_dim) # + 2 spatial dimensions for encoding the image grid
+
+        self.image_position_conditioner = PositionalEncodingImageGrid(visual_features_dim, grid)
+        self.multi_label_class_head = nn.Linear(cfg['model']['embed-dim'] // 2, len(labels))
+
+        self.map_to_embed_1 = nn.Linear(cfg['model']['embed-dim'], cfg['model']['embed-dim'])
+        self.map_to_embed_2 = nn.Linear(cfg['model']['embed-dim'], cfg['model']['embed-dim'] // 2)
+
+        self.weightedLayer = FeatureWeightedLayer()
+
+
+    def forward(self, text, text_len, image):
+        bs = text.shape[0]
+
+        text = text.permute(1, 0, 2)    # S x B x dim
+        # map text to a common representation space
+        text = self.map_text(text)
+        text = torch.mean(text, dim=0)
+
+        if image is not None:
+            image = image.view(bs, image.shape[1], -1).permute(2, 0, 1)  # (d1xd2 x B x dim)
+
+            # augment visual feats with positional info and then map to common representation space
+            image = self.image_position_conditioner(image)
+            image = self.map_image(image)
+            image = torch.mean(image, dim=0)
+
+            # merge image and text features using weighted method
+            image_len = [image.shape[0]] * bs
+            embeddings = self.weightedLayer(text, image)
+        else:
+            # only text
+            image_len = [0] * bs
+            embeddings = text
+
+        # forward temporal transformer
+        multimod_feature = nn.LeakyReLU(0.1)(self.map_to_embed_1(embeddings))
+        multimod_feature = nn.LeakyReLU(0.1)(self.map_to_embed_2(multimod_feature))
+
+        # final multi-class head
+        class_logits = self.multi_label_class_head(multimod_feature)
+        probs = torch.sigmoid(class_logits)
+        return probs
+
+
+class SeperateJointTransformerEncoder(nn.Module):
+    def __init__(self, cfg, labels):
+        super().__init__()
+        embed_dim = cfg['model']['embed-dim']
+        feedforward_dim = cfg['model']['feedforward-dim']
+        num_layers = cfg['model']['num-layers']
+        visual_features_dim = cfg['image-model']['feat-dim']
+        grid = cfg['image-model']['grid']
+        joint_te_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=4,
+                                                         dim_feedforward=feedforward_dim,
+                                                         dropout=0.1, activation='relu')
+        self.joint_transformer = nn.TransformerEncoder(joint_te_layer,
+                                                       num_layers=num_layers)
+
+        self.map_text = nn.Linear(cfg['text-model']['word-dim'], embed_dim)
+        self.map_image = nn.Linear(visual_features_dim, embed_dim) # + 2 spatial dimensions for encoding the image grid
+
+        self.image_position_conditioner = PositionalEncodingImageGrid(visual_features_dim, grid)
+        self.multi_label_class_head_img = nn.Linear(cfg['model']['embed-dim'], len(labels))
+        self.multi_label_class_head_text = nn.Linear(cfg['model']['embed-dim'], len(labels))
+
+        self.map_to_embed_1 = nn.Linear(cfg['model']['embed-dim'], cfg['model']['embed-dim'])
+        self.map_to_embed_2 = nn.Linear(cfg['model']['embed-dim'], cfg['model']['embed-dim'] // 2)
+
+
+    def forward(self, text, text_len, image):
+        bs = text.shape[0]
+
+        text = text.permute(1, 0, 2)    # S x B x dim
+        # map text to a common representation space
+        text = self.map_text(text)
+        text = torch.mean(text, dim=0)
+
+        if image is not None:
+            image = image.view(bs, image.shape[1], -1).permute(2, 0, 1)  # (d1xd2 x B x dim)
+            # augment visual feats with positional info and then map to common representation space
+            image = self.image_position_conditioner(image)
+            image = self.map_image(image)
+            image = torch.mean(image, dim=0)
+        else:
+            # only text
+            image = text
+
+        # final multi-class head
+        class_logits_img = self.multi_label_class_head_img(image)
+        class_logits_text = self.multi_label_class_head_img(text)
+        probs_img = torch.sigmoid(class_logits_img)
+        probs_text = torch.sigmoid(class_logits_text)
+        # average the probability
+        probs = (probs_img + probs_text) / 2
+        return probs
+
+
 class MemeMultiLabelClassifier(nn.Module):
     def __init__(self, cfg, labels):
         super().__init__()
         self.visual_enabled = cfg['image-model']['enabled'] if 'enabled' in cfg['image-model'] else True
+        # image encoding
         if self.visual_enabled:
             self.visual_module = EncoderImageCNN(cfg)
 
+        # text encoding
         if cfg['text-model']['name'] == 'roberta':
             self.textual_module = EncoderTextROBERTA(cfg)
         elif cfg['text-model']['name'] == 'albert':
@@ -370,18 +624,36 @@ class MemeMultiLabelClassifier(nn.Module):
         else:
             self.textual_module = EncoderTextBERT(cfg)
 
+        # feature fusion strategy
         if cfg['model']['name'] == 'transformer-encoder' or cfg['model']['name'] == 'transformer':
+            print('================= JointTransformerEncoder was called =================')
             self.joint_processing_module = JointTransformerEncoder(cfg, labels)
         elif cfg['model']['name'] == 'dual-transformer':
+            print('================= DualTransformer was called =================')
             self.joint_processing_module = DualTransformer(cfg, labels)
+        elif cfg['model']['name'] == 'average':
+            print('================= AverageJointTransformerEncoder was called =================')
+            self.joint_processing_module = AverageJointTransformerEncoder(cfg, labels)
+        elif cfg['model']['name'] == 'weighted':
+            print('================= WeightedJointTransformerEncoder was called =================')
+            self.joint_processing_module = WeightedJointTransformerEncoder(cfg, labels)
+        elif cfg['model']['name'] == 'concat':
+            print('================= ConcatJointTransformerEncoder was called =================')
+            self.joint_processing_module = ConcatJointTransformerEncoder(cfg, labels)
+        elif cfg['model']['name'] == 'seperate':
+            print('================= SeperateJointTransformerEncoder was called =================')
+            self.joint_processing_module = SeperateJointTransformerEncoder(cfg, labels)
 
+        # whether finetune the image / text encoder or not
         self.finetune_visual = cfg['image-model']['fine-tune']
         self.finetune_textual = cfg['text-model']['fine-tune']
 
+        # loss functions
         self.loss = nn.BCELoss() # nn.MultiLabelSoftMarginLoss()
         self.labels = labels
 
 
+    # convert id to classes
     def id_to_classes(self, classes_ids):
         out_classes = []
         for elem in classes_ids:
@@ -394,14 +666,21 @@ class MemeMultiLabelClassifier(nn.Module):
 
 
     def forward(self, image, text, text_len, labels=None, return_probs=False, inference_threshold=0.5):
+        # get image feature
         if self.visual_enabled:
             with torch.set_grad_enabled(self.finetune_visual):
                 image_feats = self.visual_module(image)
         else:
             image_feats = None
+        
+        # get text feature
         with torch.set_grad_enabled(self.finetune_textual):
             text_feats = self.textual_module(text, text_len)
+        
+        # combine image and text feature
         probs = self.joint_processing_module(text_feats, text_len, image_feats)
+
+        # prob and loss calculation
         if self.training:
             loss = self.loss(probs, labels)
             return loss

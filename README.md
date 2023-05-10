@@ -11,7 +11,7 @@ This repo contains the code for the final project of CS 769 in UW-Madison. The c
 - [CLIP model](#clip-model)
   - [Introduction](#introduction)
   - [CLIP Model running](#clip-model-running)
-- [chatGPT as Text annotator](#chatgpt-as-text-annotator)
+- [ChatGPT as Text Annotator](#chatgpt-as-text-annotator)
 - [Others](#others)
 ## Setup
 Clone this repo:

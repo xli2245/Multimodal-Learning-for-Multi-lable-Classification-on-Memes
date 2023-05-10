@@ -33,23 +33,38 @@ The model training, validation and testing are performed using the [Monai Docker
 ### Model running
 1.  Model training
 ```
-python train.py --config cfg/config_dual_transformer_task3.yaml --logger_name runs/task3_dual_transformer_weighted --val_step 100 --num_epochs 30
+python train.py --config cfg/config_task3_simple.yaml --logger_name runs/task3_single_transformer --val_step 200 --num_epochs 40
 ```
 2. Model validation
 ```
-python inference.py --checkpoint runs/task3_dual_transformer_weighted/model_latest_fold0.pt --validate
+python inference.py --checkpoint runs/saved_transfer_model/saved_best_model.pt --validate
 ```
 3. Model testing
 ```
-python inference.py --checkpoint runs/task3_dual_transformer_weighted/model_latest_fold0.pt --test
+python inference.py --checkpoint runs/saved_transfer_model/saved_best_model.pt --test
 ```
 ### Model weight
-The weight of the best model obtained can be found in the zipped folder in [google drive](https://drive.google.com/drive/folders/1Kk_RAtu0HnvQYur3SldjiLbeznCHQJ1K?usp=sharing). The name of the saved model weight is "model_latest_fold0.pt"
+The weight of the best model obtained can be found in the [google drive](https://drive.google.com/drive/folders/1Kk_RAtu0HnvQYur3SldjiLbeznCHQJ1K?usp=sharing). The name of the saved model weight is "saved_transfer_model.tar.gz".
+
+To unzip the model weight
+```
+tar -xvf ./saved_transfer_model.tar.gz
+```
+
+The downloaded pretrained models (BERT, RoBERTa ...) can be also be found in the google drive folder. The name is "model.tar.gz".
+
 ## CLIP model
 ### Introduction
 The [Contrastive Language-Image Pre-training (CLIP) model](https://github.com/openai/CLIP) is a pre-trained visual-language model that utilizes image-text pairs with contrastive loss. The model typically takes an image and multiple text inputs, generating a similarity score between the image and each text, ranked in descending order. We use the original meme images, complete with text, as input for the image component. To accommodate the multi-label nature of this problem, we experiment with various methods for constructing text inputs and processing the results. 
 ### CLIP model running
+
+For Method 1 and Method 2, which use two contradictory texts as inputs and perform 22 predictions for 22 techniques. 
 ```
+python sgl_class_based_clip.py 
+```
+For Method 3 and Method 4, which inputs texts for 22 techniques at the same time.
+```
+python all_class_based_clip.py
 ```
 
 ## ChatGPT as Text Annotator

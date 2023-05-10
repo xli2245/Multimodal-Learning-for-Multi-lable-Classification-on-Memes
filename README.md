@@ -37,6 +37,8 @@ cd ..
 
 ## Multimodal classification framework
 
+![Main framework](https://github.com/xli2245/CS769_Project/blob/main/main%20framework.png)
+
 ### Environment
 
 The model training, validation and testing are performed using the [Monai Docker](https://hub.docker.com/r/projectmonai/monai).

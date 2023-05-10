@@ -75,12 +75,12 @@ The [Contrastive Language-Image Pre-training (CLIP) model](https://github.com/op
 ```
 ```
 
-## chatGPT as Text Annotator
+## ChatGPT as Text Annotator
 
 Run the gpt4_classification.ipynb, replace the key with your own openai key.
 In the code:  
-  there are two versions of **tech_20** for detailed or simplified description.  
-  active **instruction3** if you want gpt-4 return the confident score of the classifcation
+  &nbsp;&nbsp; There are two versions of **tech_20** for detailed or simplified description.  
+ &nbsp;&nbsp; Active **instruction3** if you want gpt-4 return the confident score of the classifcation
 
 ## Others
 Three types of data augmentation, random insertion, random substitution and back translation are implemented in the file "traindata_augment.ipynb" in the folder "data augmentation". This can be run using google colab. Note that "techniques_list_task3.txt", "training_set_task3.txt", "dev_set_task3_labeled.txt", "folds.json" are needed for the data augmentation.

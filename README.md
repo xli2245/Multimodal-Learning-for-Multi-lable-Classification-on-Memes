@@ -68,7 +68,7 @@ The weight of the best model obtained can be found in the zipped folder in [goog
 ## CLIP model
 
 ### Introduction
-The Contrastive Language-Image Pre-training (CLIP) model is a pre-trained visual-language model that utilizes image-text pairs with contrastive loss \cite{radford2021learning}. The model typically takes an image and multiple text inputs, generating a similarity score between the image and each text, ranked in descending order. We use the original meme images, complete with text, as input for the image component. To accommodate the multi-label nature of this problem, we experiment with various methods for constructing text inputs and processing the results. 
+The [Contrastive Language-Image Pre-training (CLIP) model](https://github.com/openai/CLIP) is a pre-trained visual-language model that utilizes image-text pairs with contrastive loss. The model typically takes an image and multiple text inputs, generating a similarity score between the image and each text, ranked in descending order. We use the original meme images, complete with text, as input for the image component. To accommodate the multi-label nature of this problem, we experiment with various methods for constructing text inputs and processing the results. 
 
 ### CLIP model running
 

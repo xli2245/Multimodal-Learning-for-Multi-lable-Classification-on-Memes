@@ -76,7 +76,7 @@ The Contrastive Language-Image Pre-training (CLIP) model is a pre-trained visual
 ## chatGPT as Text Annotator
 
 ## Others
-Data augmentation
+Three types of data augmentation, random insertion, random substitution and back translation are implemented in the file "traindata_augment.ipynb" in the folder "data augmentation". This can be run using google colab. Note that "techniques_list_task3.txt", "training_set_task3.txt", "dev_set_task3_labeled.txt", "folds.json" are needed for the data augmentation.
 
 
 

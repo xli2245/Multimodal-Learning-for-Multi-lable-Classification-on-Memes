@@ -1,5 +1,5 @@
 # Multimodal Classification on Persuasion
-### Teammate: Minyi Dai, Yepeng Jin, Xue Li
+### Teammate: Xue Li, Minyi Dai, Yepeng Jin, 
 The code is built based on the [AIMH model](https://github.com/mesnico/MemePersuasionDetection) used for [the SemEval-2021 Task 6 challenge](https://propaganda.math.unipd.it/semeval2021task6/). We aim to develop an effective multimodal approach for automatically identifying the rhetorical and psychological techniques used in memes by considering both visual and textual elements. To achieve this, we utilize Convolutional Neural Networks (CNN) for image embedding and Bidirectional Encoder Representations from Transformers (BERT) for text embedding. We explore and compare various model fusion strategies, such as arithmetic operations, single transformers, and dual transformers. Furthermore, we investigate the impact of alternative text embedding models and experiment with methods like CLIP and ChatGPT. 
 ## Table of Contents
 - [Setup](#setup)
